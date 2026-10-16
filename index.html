@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autodestrucción Inminente</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #000;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace; /* Estilo terminal de ordenador */
+            transition: transform 0.05s ease;
+        }
+
+        /* Botón de Inicio */
+        #btn-inicio {
+            padding: 20px 50px;
+            font-size: 1.6rem;
+            color: #ff0055;
+            background: transparent;
+            border: 3px solid #ff0055;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 25px rgba(255, 0, 85, 0.4);
+            z-index: 10;
+        }
+
+        #btn-inicio:hover {
+            background-color: #ff0055;
+            color: #000;
+            box-shadow: 0 0 40px rgba(255, 0, 85, 0.9);
+            transform: scale(1.08);
+        }
+
+        /* Controles flotantes */
+        .controles {
+            display: none;
+            position: fixed;
+            top: 25px;
+            right: 25px;
+            gap: 12px;
+            z-index: 30;
+        }
+
+        .btn-control {
+            padding: 10px 22px;
+            font-size: 0.95rem;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 30px;
+            backdrop-filter: blur(5px);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-control:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: scale(1.05);
+        }
+
+        #btn-salir:hover {
+            background: rgba(255, 0, 85, 0.8);
+            border-color: #ff0055;
+            box-shadow: 0 0 15px rgba(255, 0, 85, 0.6);
+        }
+
+        /* Ventana de alerta estilo terminal */
+        #ventana-alerta {
+            display: none;
+            position: relative;
+            width: 90%;
+            max-width: 650px;
+            background-color: #050505;
+            border: 3px solid #ffffff;
+            box-shadow: 0 0 35px rgba(255, 255, 255, 0.3);
+            padding: 40px;
+            text-align: center;
+            color: #ffffff;
+            z-index: 20;
+        }
+
+        #ventana-alerta h1 {
+            font-size: 1.8rem;
+            margin-bottom: 25px;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+        }
+
+        #contador {
+            font-size: 6rem;
+            font-weight: bold;
+            color: #ff0055;
+            text-shadow: 0 0 20px #ff0055;
+            margin: 20px 0;
+        }
+
+        /* Lienzo para los trozos que se arrancan y el caos */
+        #canvas-container {
+            display: none;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 25;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Botón de Inicio -->
+    <button id="btn-inicio">ACTIVAR AUTODESTRUCCIÓN</button>
+
+    <!-- Controles flotantes -->
+    <div class="controles" id="panel-controles">
+        <button class="btn-control" id="btn-audio">🔊 Sonido: ON</button>
+        <button class="btn-control" id="btn-salir">Salir</button>
+    </div>
+
+    <!-- Ventana de Alerta -->
+    <div id="ventana-alerta" id="cajaVentana">
+        <h1>⚠️ ATENCIÓN: EN 5 SEGUNDOS ESTA PÁGINA SE AUTODESTRUIRÁ ⚠️</h1>
+        <div id="contador">5</div>
+    </div>
+
+    <!-- Contenedor del lienzo para efectos de destrucción -->
+    <div id="canvas-container">
+        <canvas id="destruccionCanvas"></canvas>
+    </div>
+
+    <script>
+        const btnInicio = document.getElementById('btn-inicio');
+        const btnSalir = document.getElementById('btn-salir');
+        const btnAudio = document.getElementById('btn-audio');
+        const panelControles = document.getElementById('panel-controles');
+        const ventanaAlerta = document.getElementById('ventana-alerta');
+        const contadorDiv = document.getElementById('contador');
+        const canvasContainer = document.getElementById('canvas-container');
+        const canvas = document.getElementById('destruccionCanvas');
+        const ctx = canvas.getContext('2d');
+        const body = document.body;
+
+        let tiempoRestante = 5;
+        let intervaloCuentaAtras = null;
+        let estado = 'esperando'; // esperando, cuenta, destruyendo
+        let trozosEscena = [];
+        let animacionId = null;
+        let temblorIntensidad = 0;
+
+        // Variables de Audio (Volumen Máximo + Compresor + Alarma)
+        let audioCtx = null;
+        let audioActivo = true;
+        let masterGain = null;
+        let compresor = null;
+        let filtro = null;
+        let intervaloAlarma = null;
+
+        function ajustarCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        window.addEventListener('resize', ajustarCanvas);
+
+        // --- SISTEMA DE AUDIO DE ALERTA Y EXPLOSIÓN (Volumen Máximo) ---
+        function emitirPitidoAlarma(esExplosion = false) {
+            if (!audioActivo || !audioCtx || audioCtx.state !== 'running') return;
+
+            const tiempoActual = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            if (!esExplosion) {
+                // Pitido de cuenta atrás tenso
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(880, tiempoActual); // Nota La alta
+                gain.gain.setValueAtTime(1.0, tiempoActual);
+                gain.gain.exponentialRampToValueAtTime(0.001, tiempoActual + 0.3);
+                osc.connect(gain);
+                gain.connect(filtro);
+                osc.start(tiempoActual);
+                osc.stop(tiempoActual + 0.35);
+            } else {
+                // Sonido de explosión y caos final
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, tiempoActual);
+                osc.frequency.exponentialRampToValueAtTime(30, tiempoActual + 1.5);
+                gain.gain.setValueAtTime(1.0, tiempoActual);
+                gain.gain.exponentialRampToValueAtTime(0.001, tiempoActual + 1.5);
+                osc.connect(gain);
+                gain.connect(filtro);
+                osc.start(tiempoActual);
+                osc.stop(tiempoActual + 1.6);
+            }
+        }
+
+        function iniciarSistemaAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            } else if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            masterGain = audioCtx.createGain();
+            masterGain.gain.setValueAtTime(audioActivo ? 1.0 : 0, audioCtx.currentTime);
+
+            compresor = audioCtx.createDynamicsCompressor();
+            compresor.threshold.setValueAtTime(-15, audioCtx.currentTime);
+            compresor.ratio.setValueAtTime(15, audioCtx.currentTime);
+
+            filtro = audioCtx.createBiquadFilter();
+            filtro.type = 'lowpass';
+            filtro.frequency.setValueAtTime(3000, audioCtx.currentTime);
+
+            filtro.connect(compresor);
+            compresor.connect(masterGain);
+            masterGain.connect(audioCtx.destination);
+        }
+
+        function detenerAudio() {
+            if (intervaloAlarma) clearInterval(intervaloAlarma);
+            if (masterGain && audioCtx) {
+                masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2);
+            }
+        }
+
+        btnAudio.addEventListener('click', () => {
+            audioActivo = !audioActivo;
+            btnAudio.textContent = audioActivo ? "🔊 Sonido: ON" : "🔇 Sonido: OFF";
+            if (masterGain && audioCtx) {
+                masterGain.gain.setValueAtTime(audioActivo ? 1.0 : 0, audioCtx.currentTime);
+            }
+        });
+
+        // --- INICIAR SECUENCIA DE AUTODESTRUCCIÓN ---
+        btnInicio.addEventListener('click', () => {
+            btnInicio.style.display = 'none';
+            panelControles.style.display = 'flex';
+            ventanaAlerta.style.display = 'block';
+            canvasContainer.style.display = 'block';
+
+            ajustarCanvas();
+            iniciarSistemaAudio();
+
+            tiempoRestante = 5;
+            contadorDiv.textContent = tiempoRestante;
+            estado = 'cuenta';
+
+            emitirPitidoAlarma(false);
+
+            // Bucle de la cuenta atrás (cada 1 segundo)
+            intervaloCuentaAtras = setInterval(() => {
+                tiempoRestante--;
+                if (tiempoRestante > 0) {
+                    contadorDiv.textContent = tiempoRestante;
+                    emitirPitidoAlarma(false);
+                } else if (tiempoRestante === 0) {
+                    contadorDiv.textContent = "0";
+                    clearInterval(intervaloCuentaAtras);
+                    iniciarDestruccionTotal();
+                }
+            }, 1000);
+        });
+
+        // --- BOTÓN DE SALIR ---
+        btnSalir.addEventListener('click', () => {
+            reiniciarTotal();
+        });
+
+        function reiniciarTotal() {
+            if (intervaloCuentaAtras) clearInterval(intervaloCuentaAtras);
+            if (animacionId) cancelAnimationFrame(animacionId);
+            detenerAudio();
+
+            estado = 'esperando';
+            body.style.transform = 'translate(0, 0)';
+            ventanaAlerta.style.display = 'none';
+            canvasContainer.style.display = 'none';
+            panelControles.style.display = 'none';
+            btnInicio.style.display = 'block';
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // --- CLASE PARA LOS TROZOS QUE SE ARRIBTAN / ROMPEN ---
+        class TrozoRto {
+            constructor(x, y, ancho, alto) {
+                this.x = x;
+                this.y = y;
+                this.ancho = ancho;
+                this.alto = alto;
+                this.vx = (Math.random() - 0.5) * 20;
+                this.vy = (Math.random() - 1) * 15 - 5; // Salen disparados hacia arriba y lados
+                this.rotacion = Math.random() * Math.PI;
+                this.vRot = (Math.random() - 0.5) * 0.2;
+                this.gravedad = 0.8;
+            }
+
+            actualizar() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += this.gravedad;
+                this.rotacion += this.vRot;
+            }
+
+            dibujar() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotacion);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(-this.ancho/2, -this.alto/2, this.ancho, this.alto);
+                ctx.restore();
+            }
+        }
+
+        function iniciarDestruccionTotal() {
+            estado = 'destruyendo';
+            ventanaAlerta.style.display = 'none'; // Desaparece la ventana de golpe
+            emitirPitidoAlarma(true); // Sonido de explosión máxima
+
+            temblorIntensidad = 25; // Pantalla tiembla violentamente
+
+            // Crear fragmentos simulando que se arrancan trozos de la pantalla
+            trozosEscena = [];
+            let filas = 12;
+            let columnas = 16;
+            let w = canvas.width / columnas;
+            let h = canvas.height / filas;
+
+            for (let r = 0; r < filas; r++) {
+                for (let c = 0; c < columnas; c++) {
+                    trozosEscena.push(new TrozoRto(c * w + w/2, r * h + h/2, w * 0.9, h * 0.9));
+                }
+            }
+
+            bucleDestruccion();
+
+            // Después de 3 segundos de caos total, devolver al usuario a la página de inicio
+            setTimeout(() => {
+                reiniciarTotal();
+            }, 3000);
+        }
+
+        // --- BUCLE DE ANIMACIÓN DE DESTRUCCIÓN ---
+        function bucleDestruccion() {
+            if (estado !== 'destruyendo') return;
+
+            // Limpiar con estela
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Efecto de temblor de pantalla (Screen shake)
+            let offsetX = (Math.random() - 0.5) * temblorIntensidad;
+            let offsetY = (Math.random() - 0.5) * temblorIntensidad;
+            body.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+
+            // Actualizar y dibujar trozos volando
+            for (let i = 0; i < trozosEscena.length; i++) {
+                trozosEscena[i].actualizar();
+                trozosEscena[i].dibujar();
+            }
+
+            animacionId = requestAnimationFrame(bucleDestruccion);
+        }
+    </script>
+</body>
+</html>
